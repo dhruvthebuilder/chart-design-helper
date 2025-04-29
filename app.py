@@ -1,6 +1,8 @@
-# true_beacon_radio.py · v1.2 · 2025-04-30
-# Brand-locked chart builder with trend-lines, data-labels, highlight bands
-# and auto-insert into Figma via download buttons.
+# true_beacon_radio.py  ·  v1.3  ·  2025-04-30
+# ------------------------------------------------
+# Brand-locked chart builder (web-only edition):
+# • Canvas presets, data-labels, highlight bands, trend-lines
+# • Standard Streamlit download buttons (PNG / SVG)
 
 import io, csv, re, base64
 from datetime import datetime
@@ -8,11 +10,10 @@ import numpy as np, pandas as pd
 import plotly.express as px, plotly.graph_objects as go, plotly.io as pio
 from plotly.subplots import make_subplots
 import streamlit as st
-import streamlit.components.v1 as components
 
-# ───── Brand template ──────────────────────────────────────────────────────
+# ── Brand palette & Plotly template ───────────────────────────────────────
 PALETTE = GOLD, GOLD_LIGHT, GRAY, WHITE = (
-    "#987F2F", "#E5C96A", "#B6B6B6", "#FFFFFF"
+    "#D4AF37", "#E5C96A", "#B6B6B6", "#FFFFFF"
 )
 TRANS = "rgba(0,0,0,0)"
 
@@ -30,7 +31,7 @@ pio.templates.default = "truebeacon"
 slug  = lambda s: re.sub(r"[^0-9A-Za-z]+", "_", s.lower()).strip("_") or "chart"
 stamp = lambda: datetime.now().strftime("%Y%m%d-%H%M")
 
-# ───── Helpers ─────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────
 def parse_manual(txt:str)->pd.DataFrame:
     delim = next((d for d in ("\t",";","|",",") if d in txt), ",")
     return pd.read_csv(io.StringIO(txt), delimiter=delim)
@@ -55,11 +56,11 @@ def combo_fig(df,x,b,l,title):
                     showline=True,linecolor=GRAY))
     return fig
 
-# ───── Streamlit scaffold ─────────────────────────────────────────────────
+# ── Streamlit scaffold ────────────────────────────────────────────────────
 st.set_page_config(page_title="True Beacon — Radio", layout="wide")
-st.title("True Beacon — Radio  (v 1.2)")
+st.title("True Beacon — Radio  (v 1.3)")
 
-# ① DATA ────────────────────────────────────────────────────────────────
+# ① DATA ===================================================================
 tabs=st.tabs(["Upload file","Manual paste"])
 if "df" not in st.session_state: st.session_state.df=pd.DataFrame()
 
@@ -71,7 +72,8 @@ with tabs[0]:
     if up:
         st.session_state.df=(pd.read_csv(up)
             if up.name.endswith(".csv") else pd.read_excel(up))
-        st.success("Loaded"); st.dataframe(st.session_state.df.head(),use_container_width=True)
+        st.success("Loaded"); st.dataframe(st.session_state.df.head(),
+                                           use_container_width=True)
 
 with tabs[1]:
     txt=st.text_area("Paste data (tab / comma / semicolon / pipe separated)",height=160)
@@ -91,13 +93,12 @@ df=st.session_state.df
 if df.empty: st.stop()
 cols=list(df.columns)
 
-# ② CHART ───────────────────────────────────────────────────────────────
+# ② CHART ==================================================================
 CHARTS=["Line","Scatter","Area","Bar","Grouped Bar","Stacked Bar",
         "Stacked Bar (h)","Histogram","Box","Pie","Donut","Donut + Pie","Radar",
         "Heatmap","Waterfall","Draw-down","Line-Bar Combo"]
 chart=st.selectbox("Chart type",CHARTS)
-xcol=st.selectbox("X axis",cols)
-
+xcol =st.selectbox("X axis",cols)
 single={"Pie","Donut","Donut + Pie","Histogram","Box","Heatmap","Waterfall","Draw-down"}
 if chart in single:
     ycols=[st.selectbox("Value / Y",[c for c in cols if c!=xcol])]
@@ -105,13 +106,13 @@ elif chart=="Radar":
     ycols=st.multiselect("Series",[c for c in cols if c!=xcol],
                          default=[c for c in cols if c!=xcol][:1])
 elif chart=="Line-Bar Combo":
-    bar_y = st.selectbox("Bar series",[c for c in cols if c!=xcol])
-    line_y= st.selectbox("Line series",[c for c in cols if c not in (xcol,bar_y)])
+    bar_y=st.selectbox("Bar series",[c for c in cols if c!=xcol])
+    line_y=st.selectbox("Line series",[c for c in cols if c not in (xcol,bar_y)])
 else:
     ycols=st.multiselect("Series",[c for c in cols if c!=xcol],
                          default=[c for c in cols if c!=xcol][:2])
 
-# ③ LAYOUT & STYLE ───────────────────────────────────────────────────────
+# ③ LAYOUT & STYLE =========================================================
 PRESETS={"Slide-below 1650×640":(1650,640),"Slide-side 815×640":(815,640),
          "Hero 1920×480":(1920,480),"Social 1080×800":(1080,800),
          "Square 1080×1080":(1080,1080),"Custom…":None}
@@ -156,7 +157,7 @@ if chart in {"Bar","Grouped Bar","Stacked Bar","Stacked Bar (h)","Pie","Donut","
     if chart in {"Pie","Donut"} and show_labels:
         label_mode=st.radio("Label type",["percent","value"],horizontal=True)
 
-# ④ GENERATE ────────────────────────────────────────────────────────────
+# ④ GENERATE ===============================================================
 if st.button("Generate"):
     try:
         # base figure --------------------------------------------------
@@ -230,47 +231,16 @@ if st.button("Generate"):
         if grid:  fig.update_xaxes(showgrid=True); fig.update_yaxes(showgrid=True)
 
         st.plotly_chart(fig,use_container_width=False,
-            config={"modeBarButtonsToAdd":["drawrect","eraseshape"],"displaylogo":False})
+            config={"modeBarButtonsToAdd":["drawrect","eraseshape"],
+                    "displaylogo":False})
 
-        # ---------- EXPORT & FIGMA POST ----------------------------------
+        # ---------- EXPORT ------------------------------------------------
         png_bytes = fig.to_image(format="png", width=W, height=H, scale=2)
         svg_bytes = fig.to_image(format="svg", width=W, height=H, scale=2)
         base      = f"{slug(title or chart)}_{W}x{H}_{stamp()}"
 
-        def gold_download(label:str, data:bytes, fname:str, mime:str):
-            b64  = base64.b64encode(data).decode()
-            href = f"data:{mime};base64,{b64}"
-            # visible gold anchor
-            st.markdown(
-                f"""
-                <a download="{fname}"
-                   href="{href}"
-                   id="dl_{label}"
-                   style="display:inline-block;margin:6px 6px 6px 0;
-                          padding:8px 16px;background:{GOLD};color:white;
-                          border-radius:4px;font-family:Red Hat Display,sans-serif;
-                          text-decoration:none;">{label}</a>
-                """, unsafe_allow_html=True)
-            # JS relay
-            components.html(
-                f"""
-                <script>
-                  document.getElementById("dl_{label}").addEventListener("click",()=>{{
-                    parent.postMessage({{
-                      pluginMessage:{{
-                        type:"insert-chart",
-                        pngBase64:"{b64}",
-                        w:{W},
-                        h:{H},
-                        format:"{label}"
-                      }}
-                    }},"*");
-                  }});
-                </script>
-                """, height=0)
-
-        gold_download("PNG", png_bytes, f"{base}.png", "image/png")
-        gold_download("SVG", svg_bytes, f"{base}.svg", "image/svg+xml")
+        st.download_button("Download PNG", png_bytes, f"{base}.png", "image/png")
+        st.download_button("Download SVG", svg_bytes, f"{base}.svg", "image/svg+xml")
 
     except Exception as e:
         st.error(e)
