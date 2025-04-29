@@ -13,7 +13,7 @@ import streamlit as st
 
 # ── Brand palette & Plotly template ───────────────────────────────────────
 PALETTE = GOLD, GOLD_LIGHT, GRAY, WHITE = (
-    "#D4AF37", "#E5C96A", "#B6B6B6", "#FFFFFF"
+    "#987F2F", "#E5C96A", "#B6B6B6", "#FFFFFF"
 )
 TRANS = "rgba(0,0,0,0)"
 
