@@ -254,30 +254,3 @@ if st.button("Generate"):
         st.download_button("SVG",svg,f"{base}.svg","image/svg+xml")
     except Exception as e:
         st.error(e)
-        
-# inject a tiny script once
-components.html("""
-<script>
-window.addEventListener("message", (ev)=>{
-  if(ev.data.type==="requestChart"){               // future-proof
-    // not used yet
-  }
-});
-function sendToFigma(bytes,w,h){
-  parent.postMessage({ pluginMessage:{
-    type:"insert-chart",
-    pngBase64:bytes,
-    w:w,
-    h:h
-  }},"*");
-}
-</script>
-""", height=0)
-
-# ... inside Generate button block, after fig.to_image(...)
-b64 = base64.b64encode(png).decode()
-# Show a button designers click to push image into Figma
-if st.button("Insert into Figma"):
-    st.write("Sending…")
-    st.components.v1.html(f"""
-       <script>sendToFigma("{b64}",{W},{H});</script>""",height=0)
