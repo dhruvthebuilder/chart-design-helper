@@ -57,8 +57,8 @@ def combo_fig(df,x,b,l,title):
     return fig
 
 # ── Streamlit scaffold ────────────────────────────────────────────────────
-st.set_page_config(page_title="True Beacon — Radio", layout="wide")
-st.title("True Beacon — Radio  (v 1.3)")
+st.set_page_config(page_title="Radio", layout="wide")
+st.title("Radio")
 
 # ① DATA ===================================================================
 tabs=st.tabs(["Upload file","Manual paste"])
