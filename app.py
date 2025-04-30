@@ -1,17 +1,25 @@
-# true_beacon_radio.py  ·  v1.3  ·  2025-04-30
+# true_beacon_radio.py  ·  v1.3.1 · 2025-04-30
 # ------------------------------------------------
 # Brand-locked chart builder (web-only edition):
 # • Canvas presets, data-labels, highlight bands, trend-lines
+# • Axis-title & tick-label toggles + edits
+# • Color randomiser
+# • Resolution preview
+# • Data normalization (index to base)
 # • Standard Streamlit download buttons (PNG / SVG)
 
-import io, csv, re, base64
+import io, re, random
 from datetime import datetime
-import numpy as np, pandas as pd
-import plotly.express as px, plotly.graph_objects as go, plotly.io as pio
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 import streamlit as st
 
-# ── Brand palette & Plotly template ───────────────────────────────────────
+# ── Brand template & palette ──────────────────────────────────────────────
 PALETTE = GOLD, GOLD_LIGHT, GRAY, WHITE = (
     "#987F2F", "#E5C96A", "#B6B6B6", "#FFFFFF"
 )
@@ -25,216 +33,351 @@ pio.templates["truebeacon"] = go.layout.Template(
         xaxis=dict(showgrid=False, showline=True, linecolor=GRAY,
                    zeroline=True, zerolinecolor=GRAY),
         yaxis=dict(showgrid=False, showline=True, linecolor=GRAY,
-                   zeroline=True, zerolinecolor=GRAY)))
+                   zeroline=True, zerolinecolor=GRAY)
+    )
+)
 pio.templates.default = "truebeacon"
 
 slug  = lambda s: re.sub(r"[^0-9A-Za-z]+", "_", s.lower()).strip("_") or "chart"
 stamp = lambda: datetime.now().strftime("%Y%m%d-%H%M")
 
-# ── Helpers ───────────────────────────────────────────────────────────────
-def parse_manual(txt:str)->pd.DataFrame:
+# ── Helpers ────────────────────────────────────────────────────────────────
+def parse_manual(txt: str) -> pd.DataFrame:
     delim = next((d for d in ("\t",";","|",",") if d in txt), ",")
     return pd.read_csv(io.StringIO(txt), delimiter=delim)
 
-def sample_df()->pd.DataFrame:
-    return pd.DataFrame({"X":range(1,6),
-                         "Series 1":[10,12,9,14,8],
-                         "Series 2":[5,7,6,9,4]})
+def sample_df() -> pd.DataFrame:
+    return pd.DataFrame({
+        "X": list(range(1,6)),
+        "Series 1":[10,12,9,14,8],
+        "Series 2":[5,7,6,9,4]
+    })
 
-def drawdown_fig(df,x,y,title):
-    dd=(1+df[y]).cumprod()/(1+df[y]).cumprod().cummax()-1
-    fig=px.area(x=df[x],y=dd,title=title,labels={"y":"Draw-down"})
+def drawdown_fig(df, x, y, title):
+    cum        = (1 + df[y]).cumprod()
+    running_max= cum.cummax()
+    dd         = cum/running_max - 1
+    fig        = px.area(x=df[x], y=dd, title=title, labels={"y":"Draw-down"})
     fig.update_yaxes(tickformat=".0%")
     return fig
 
-def combo_fig(df,x,b,l,title):
-    fig=go.Figure()
-    fig.add_bar(x=df[x],y=df[b],name=b)
-    fig.add_scatter(x=df[x],y=df[l],mode="lines+markers",name=l,yaxis="y2")
+def combo_fig(df, x, b, l, title):
+    fig = go.Figure()
+    fig.add_bar(x=df[x], y=df[b], name=b)
+    fig.add_scatter(x=df[x], y=df[l], mode="lines+markers", name=l, yaxis="y2")
     fig.update_layout(title=title,
-        yaxis2=dict(overlaying="y",side="right",showgrid=False,
-                    showline=True,linecolor=GRAY))
+        yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                    showline=True, linecolor=GRAY))
     return fig
 
 # ── Streamlit scaffold ────────────────────────────────────────────────────
 st.set_page_config(page_title="Radio", layout="wide")
 st.title("Radio")
 
-# ① DATA ===================================================================
-tabs=st.tabs(["Upload file","Manual paste"])
-if "df" not in st.session_state: st.session_state.df=pd.DataFrame()
+# ① DATA INPUT & NORMALIZATION =============================================
+tabs = st.tabs(["Upload file","Manual paste"])
+if "df" not in st.session_state:
+    st.session_state.df = pd.DataFrame()
 
 with tabs[0]:
-    up=st.file_uploader("CSV / Excel")
+    up = st.file_uploader("CSV / Excel")
     if st.button("Download sample CSV"):
-        st.download_button("sample.csv", sample_df().to_csv(index=False).encode(),
-                           "sample.csv","text/csv")
+        st.download_button(
+            "sample.csv",
+            sample_df().to_csv(index=False).encode(),
+            "sample.csv","text/csv"
+        )
     if up:
-        st.session_state.df=(pd.read_csv(up)
-            if up.name.endswith(".csv") else pd.read_excel(up))
-        st.success("Loaded"); st.dataframe(st.session_state.df.head(),
-                                           use_container_width=True)
+        st.session_state.df = (
+            pd.read_csv(up) if up.name.endswith(".csv")
+            else pd.read_excel(up)
+        )
+        st.success("Loaded")
+        st.dataframe(st.session_state.df.head(), use_container_width=True)
 
 with tabs[1]:
-    txt=st.text_area("Paste data (tab / comma / semicolon / pipe separated)",height=160)
+    txt = st.text_area(
+        "Paste data (tab/comma/semicolon/pipe separated)", height=160
+    )
     if st.button("Parse paste"):
-        try: st.session_state.preview=parse_manual(txt)
-        except Exception as e: st.error(e)
+        try:
+            st.session_state.preview = parse_manual(txt)
+        except Exception as e:
+            st.error(e)
     if "preview" in st.session_state:
-        prev=st.session_state.preview
-        st.dataframe(prev,use_container_width=True)
+        prev = st.session_state.preview
+        st.dataframe(prev, use_container_width=True)
         with st.form("rename"):
-            cols=[st.text_input("",c,key=f"h{i}") for i,c in enumerate(prev.columns)]
+            cols = [
+                st.text_input("", c, key=f"h{i}")
+                for i,c in enumerate(prev.columns)
+            ]
             if st.form_submit_button("Use this data"):
-                prev.columns=cols; st.session_state.df=prev.copy()
-                st.success("Data ready"); del st.session_state.preview
+                prev.columns = cols
+                st.session_state.df = prev.copy()
+                st.success("Data ready")
+                del st.session_state.preview
 
-df=st.session_state.df
-if df.empty: st.stop()
-cols=list(df.columns)
+df = st.session_state.df.copy()
+if df.empty:
+    st.stop()
 
-# ② CHART ==================================================================
-CHARTS=["Line","Scatter","Area","Bar","Grouped Bar","Stacked Bar",
-        "Stacked Bar (h)","Histogram","Box","Pie","Donut","Donut + Pie","Radar",
-        "Heatmap","Waterfall","Draw-down","Line-Bar Combo"]
-chart=st.selectbox("Chart type",CHARTS)
-xcol =st.selectbox("X axis",cols)
-single={"Pie","Donut","Donut + Pie","Histogram","Box","Heatmap","Waterfall","Draw-down"}
+# Ask about indexing
+if st.checkbox("Normalize numeric series to base 100"):
+    numeric_cols = [
+        c for c in df.columns
+        if pd.api.types.is_numeric_dtype(df[c])
+    ]
+    sel = st.multiselect("Select series to normalize", numeric_cols, default=numeric_cols)
+    if st.button("Apply normalization"):
+        for c in sel:
+            first = df[c].iloc[0]
+            if first != 0:
+                df[c] = df[c] / first * 100
+        st.success(f"Indexed {', '.join(sel)} to 100")
+
+cols = list(df.columns)
+
+# ② CHART SELECTION =========================================================
+CHARTS = [
+    "Line","Scatter","Area","Bar","Grouped Bar","Stacked Bar",
+    "Stacked Bar (h)","Histogram","Box","Pie","Donut","Donut + Pie",
+    "Radar","Heatmap","Waterfall","Draw-down","Line-Bar Combo"
+]
+chart = st.selectbox("Chart type", CHARTS)
+xcol  = st.selectbox("X axis", cols)
+
+single = {
+    "Pie","Donut","Donut + Pie","Histogram","Box",
+    "Heatmap","Waterfall","Draw-down"
+}
 if chart in single:
-    ycols=[st.selectbox("Value / Y",[c for c in cols if c!=xcol])]
+    ycols = [
+        st.selectbox("Value / Y",[c for c in cols if c!=xcol])
+    ]
 elif chart=="Radar":
-    ycols=st.multiselect("Series",[c for c in cols if c!=xcol],
-                         default=[c for c in cols if c!=xcol][:1])
+    ycols = st.multiselect(
+        "Series",[c for c in cols if c!=xcol],
+        default=[c for c in cols if c!=xcol][:1]
+    )
 elif chart=="Line-Bar Combo":
-    bar_y=st.selectbox("Bar series",[c for c in cols if c!=xcol])
-    line_y=st.selectbox("Line series",[c for c in cols if c not in (xcol,bar_y)])
+    bar_y  = st.selectbox("Bar series",[c for c in cols if c!=xcol])
+    line_y = st.selectbox(
+        "Line series",[c for c in cols if c not in (xcol,bar_y)]
+    )
 else:
-    ycols=st.multiselect("Series",[c for c in cols if c!=xcol],
-                         default=[c for c in cols if c!=xcol][:2])
+    ycols = st.multiselect(
+        "Series",[c for c in cols if c!=xcol],
+        default=[c for c in cols if c!=xcol][:2]
+    )
 
 # ③ LAYOUT & STYLE =========================================================
-PRESETS={"Slide-below 1650×640":(1650,640),"Slide-side 815×640":(815,640),
-         "Hero 1920×480":(1920,480),"Social 1080×800":(1080,800),
-         "Square 1080×1080":(1080,1080),"Custom…":None}
-sel=st.selectbox("Canvas preset",PRESETS.keys())
-W,H=(st.number_input("Width",400,4000,800,50),
-     st.number_input("Height",300,3000,600,50)) if sel=="Custom…" else PRESETS[sel]
+# Canvas presets
+PRESETS = {
+    "Slide-below 1650×640":(1650,640),"Slide-side 815×640":(815,640),
+    "Hero 1920×480":(1920,480),"Social 1080×800":(1080,800),
+    "Square 1080×1080":(1080,1080),"Custom…":None
+}
+sel = st.selectbox("Canvas preset", list(PRESETS.keys()))
+if sel=="Custom…":
+    W = st.number_input("Width",400,4000,800,50)
+    H = st.number_input("Height",300,3000,600,50)
+else:
+    W,H = PRESETS[sel]
 
-show_title=st.checkbox("Title",True)
-title     =st.text_input("Chart title") if show_title else ""
-legend    =st.checkbox("Legend",True)
-font_sz   =st.slider("Font size",8,32,14)
-grid      =st.checkbox("Gridlines"); yzero=st.checkbox("Y starts at 0")
+# Resolution preview
+scale = min(300/W, 300/H, 1)
+pw,ph = int(W*scale), int(H*scale)
+st.markdown(
+    f"<div style='width:{pw}px;height:{ph}px;"
+    f"border:2px dashed {GRAY};margin:8px auto;'></div>"
+    f"<div style='text-align:center;'>{W}×{H}px</div>",
+    unsafe_allow_html=True
+)
 
-# highlight
+# Color randomiser
+if "palette" not in st.session_state:
+    st.session_state.palette = list(PALETTE)
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("Randomize colors"):
+        random.shuffle(st.session_state.palette)
+with col2:
+    if st.button("Reset colors"):
+        st.session_state.palette = list(PALETTE)
+
+# Axis titles & tick-label toggles
+show_x_title = st.checkbox("Show X-axis title", True)
+x_title_text = st.text_input("X-axis title text", xcol) if show_x_title else ""
+show_x_ticks = st.checkbox("Show X-axis tick labels", True)
+
+show_y_title = st.checkbox("Show Y-axis title", True)
+y_title_text = st.text_input("Y-axis title text", ycols[0] if ycols else "") if show_y_title else ""
+show_y_ticks = st.checkbox("Show Y-axis tick labels", True)
+
+# Basic style
+show_title = st.checkbox("Show chart title", True)
+title      = st.text_input("Chart title", "") if show_title else ""
+legend     = st.checkbox("Show legend", True)
+font_sz    = st.slider("Font size",8,32,14)
+grid       = st.checkbox("Gridlines")
+yzero      = st.checkbox("Y starts at 0")
+
+# highlight band
 st.caption("Optional highlight band (gold)")
-bx0,bx1=st.text_input("X-start"),st.text_input("X-end")
-by0,by1=st.text_input("Y-start"),st.text_input("Y-end")
-op     =st.slider("Opacity",0.05,0.5,0.12,0.01)
-vband  =(bx0,bx1,op) if bx0 and bx1 else None
-hband  =None
+bx0,bx1 = st.text_input("X-start"), st.text_input("X-end")
+by0,by1 = st.text_input("Y-start"), st.text_input("Y-end")
+op      = st.slider("Opacity",0.05,0.5,0.12,0.01)
+vband   = (bx0,bx1,op) if bx0 and bx1 else None
+hband   = None
 if by0 and by1:
-    try: hband=(float(by0),float(by1),op)
-    except: st.error("Y highlight must be numeric")
+    try:
+        hband = (float(by0), float(by1), op)
+    except:
+        st.error("Y highlight must be numeric")
 
 # trend-lines
-numeric=[c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-trend_cfg=[]
+numeric = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+trend_cfg = []
 for idx in (1,2):
-    on=st.checkbox(f"Enable trend {idx}")
+    on = st.checkbox(f"Enable trend {idx}")
     if on and numeric:
-        s   =st.selectbox(f"Series {idx}",numeric,key=f"s{idx}")
-        xs  =st.selectbox(f"Start X {idx}",df[xcol],key=f"xs{idx}")
-        xe  =st.selectbox(f"End X {idx}",df[xcol],key=f"xe{idx}")
-        col =st.selectbox(f"Colour {idx}",PALETTE,key=f"c{idx}",index=idx-1)
-        sty =st.selectbox(f"Style {idx}",["solid","dash"],key=f"st{idx}")
+        s  = st.selectbox(f"Series {idx}", numeric, key=f"s{idx}")
+        xs = st.selectbox(f"Start X {idx}", df[xcol], key=f"xs{idx}")
+        xe = st.selectbox(f"End X {idx}", df[xcol], key=f"xe{idx}")
+        col= st.selectbox(f"Colour {idx}", st.session_state.palette, key=f"c{idx}", index=idx-1)
+        sty= st.selectbox(f"Style {idx}", ["solid","dash"], key=f"st{idx}")
         trend_cfg.append((s,xs,xe,sty,col))
 
 # data labels
 show_labels=False; label_mode="value"
 if chart in {"Bar","Grouped Bar","Stacked Bar","Stacked Bar (h)","Pie","Donut","Radar"}:
-    show_labels=st.checkbox("Show data labels")
+    show_labels = st.checkbox("Show data labels")
     if chart in {"Pie","Donut"} and show_labels:
-        label_mode=st.radio("Label type",["percent","value"],horizontal=True)
+        label_mode = st.radio("Label type", ["percent","value"], horizontal=True)
 
-# ④ GENERATE ===============================================================
+# ④ GENERATE ==============================================================  
 if st.button("Generate"):
     try:
-        # base figure --------------------------------------------------
-        if chart=="Line":fig=px.line(df,x=xcol,y=ycols,title=title)
-        elif chart=="Scatter":fig=px.scatter(df,x=xcol,y=ycols,title=title)
-        elif chart=="Area":fig=px.area(df,x=xcol,y=ycols,title=title)
-        elif chart=="Bar":fig=px.bar(df,x=xcol,y=ycols,title=title,text_auto=show_labels)
-        elif chart=="Grouped Bar":fig=px.bar(df,x=xcol,y=ycols,barmode="group",
-                                             title=title,text_auto=show_labels)
-        elif chart=="Stacked Bar":fig=px.bar(df,x=xcol,y=ycols,barmode="stack",
-                                             title=title,text_auto=show_labels)
-        elif chart=="Stacked Bar (h)":fig=px.bar(df,x=ycols[0],y=xcol,orientation="h",
-                                                 barmode="stack",title=title,
-                                                 text_auto=show_labels)
-        elif chart=="Histogram":fig=px.histogram(df,x=xcol,y=ycols[0],title=title)
-        elif chart=="Box":fig=px.box(df,x=xcol,y=ycols[0],title=title)
+        # build base figure
+        if chart=="Line":
+            fig = px.line(df, x=xcol, y=ycols, title=title)
+        elif chart=="Scatter":
+            fig = px.scatter(df, x=xcol, y=ycols, title=title)
+        elif chart=="Area":
+            fig = px.area(df, x=xcol, y=ycols, title=title)
+        elif chart=="Bar":
+            fig = px.bar(df, x=xcol, y=ycols, title=title, text_auto=show_labels)
+        elif chart=="Grouped Bar":
+            fig = px.bar(df, x=xcol, y=ycols, barmode="group",
+                         title=title, text_auto=show_labels)
+        elif chart=="Stacked Bar":
+            fig = px.bar(df, x=xcol, y=ycols, barmode="stack",
+                         title=title, text_auto=show_labels)
+        elif chart=="Stacked Bar (h)":
+            fig = px.bar(df, x=ycols[0], y=xcol, orientation="h",
+                         barmode="stack", title=title, text_auto=show_labels)
+        elif chart=="Histogram":
+            fig = px.histogram(df, x=xcol, y=ycols[0], title=title)
+        elif chart=="Box":
+            fig = px.box(df, x=xcol, y=ycols[0], title=title)
         elif chart=="Pie":
-            fig=px.pie(df,names=xcol,values=ycols[0],title=title)
-            txt="percent+label" if label_mode=="percent" else "value+label"
+            fig = px.pie(df, names=xcol, values=ycols[0], title=title)
+            txt = "percent+label" if label_mode=="percent" else "value+label"
             fig.update_traces(textinfo=txt)
         elif chart=="Donut":
-            fig=px.pie(df,names=xcol,values=ycols[0],hole=.4,title=title)
-            txt="percent+label" if label_mode=="percent" else "value+label"
+            fig = px.pie(df, names=xcol, values=ycols[0], hole=.4, title=title)
+            txt = "percent+label" if label_mode=="percent" else "value+label"
             fig.update_traces(textinfo=txt)
         elif chart=="Donut + Pie":
-            txt="percent+label" if label_mode=="percent" else "value+label"
-            fig=make_subplots(rows=1,cols=2,specs=[[{'type':'domain'}]*2])
-            fig.add_trace(go.Pie(labels=df[xcol],values=df[ycols[0]],
-                                 hole=.4,textinfo=txt),1,1)
-            fig.add_trace(go.Pie(labels=df[xcol],values=df[ycols[0]],
-                                 textinfo=txt),1,2)
+            txt = "percent+label" if label_mode=="percent" else "value+label"
+            fig = make_subplots(rows=1, cols=2, specs=[[{"type":"domain"}]*2])
+            fig.add_trace(go.Pie(labels=df[xcol], values=df[ycols[0]],
+                                 hole=.4, textinfo=txt), 1, 1)
+            fig.add_trace(go.Pie(labels=df[xcol], values=df[ycols[0]],
+                                 textinfo=txt), 1, 2)
             fig.update_layout(title=title)
         elif chart=="Radar":
-            fig=go.Figure()
+            fig = go.Figure()
             for c in ycols:
-                fig.add_trace(go.Scatterpolar(r=df[c],theta=df[xcol],fill="toself",
-                                              name=c,
-                                              text=df[c] if show_labels else None,
-                                              textposition="top center"))
-            fig.update_polars(radialaxis=dict(showticklabels=True,
-                                              tickformat=".0%",gridcolor=GRAY),
-                              angularaxis=dict(rotation=90))
+                fig.add_trace(go.Scatterpolar(
+                    r=df[c], theta=df[xcol], fill="toself", name=c,
+                    text=df[c] if show_labels else None,
+                    textposition="top center"
+                ))
+            fig.update_polars(
+                radialaxis=dict(showticklabels=True,
+                                tickformat=".0%", gridcolor=GRAY),
+                angularaxis=dict(rotation=90)
+            )
             fig.update_layout(title=title)
         elif chart=="Heatmap":
-            fig=px.density_heatmap(df,x=xcol,y=ycols[0],title=title,
-                                   color_continuous_scale=px.colors.sequential.Greys)
+            fig = px.density_heatmap(df, x=xcol, y=ycols[0],
+                                     title=title,
+                                     color_continuous_scale=px.colors.sequential.Greys)
         elif chart=="Waterfall":
-            fig=go.Figure(go.Waterfall(x=df[xcol],y=df[ycols[0]],
-                        measure=["relative"]*(len(df)-1)+["total"],
-                        textposition="outside" if show_labels else "none"))
+            fig = go.Figure(go.Waterfall(
+                x=df[xcol], y=df[ycols[0]],
+                measure=["relative"]*(len(df)-1)+["total"],
+                textposition=("outside" if show_labels else "none")
+            ))
             fig.update_layout(title=title)
-        elif chart=="Draw-down":fig=drawdown_fig(df,xcol,ycols[0],title)
-        elif chart=="Line-Bar Combo":fig=combo_fig(df,xcol,bar_y,line_y,title)
-        else: st.stop()
+        elif chart=="Draw-down":
+            fig = drawdown_fig(df, xcol, ycols[0], title)
+        elif chart=="Line-Bar Combo":
+            fig = combo_fig(df, xcol, bar_y, line_y, title)
+        else:
+            st.stop()
+
+        # apply randomized palette
+        fig.update_layout(colorway=st.session_state.palette)
+
+        # axis title & tick-label toggles
+        fig.update_xaxes(
+            title_text=(x_title_text if show_x_title else ""),
+            showticklabels=show_x_ticks
+        )
+        fig.update_yaxes(
+            title_text=(y_title_text if show_y_title else ""),
+            showticklabels=show_y_ticks
+        )
 
         # highlights
-        if vband: vx0,vx1,op=vband; fig.add_vrect(x0=vx0,x1=vx1,fillcolor=GOLD,opacity=op,line_width=0)
-        if hband: vy0,vy1,op=hband; fig.add_hrect(y0=vy0,y1=vy1,fillcolor=GOLD,opacity=op,line_width=0)
+        if vband:
+            x0,x1,o = vband
+            fig.add_vrect(x0=x0, x1=x1,
+                          fillcolor=GOLD, opacity=o, line_width=0)
+        if hband:
+            y0,y1,o = hband
+            fig.add_hrect(y0=y0, y1=y1,
+                          fillcolor=GOLD, opacity=o, line_width=0)
 
         # trend-lines
         for ser,xs,xe,sty,col in trend_cfg:
-            i0=df.index[df[xcol]==xs][0]; i1=df.index[df[xcol]==xe][-1]
-            rng=np.arange(i0,i1+1); y=df.loc[rng,ser]
-            m,b=np.polyfit(rng,y,1); trend=m*rng+b
-            fig.add_scatter(x=df.loc[rng,xcol],y=trend,mode="lines",
-                            name=f"{ser} trend",line=dict(color=col,dash=sty))
+            i0 = df.index[df[xcol]==xs][0]
+            i1 = df.index[df[xcol]==xe][-1]
+            rng = np.arange(i0, i1+1)
+            y   = df.loc[rng, ser]
+            m,b = np.polyfit(rng, y, 1)
+            fig.add_scatter(x=df.loc[rng, xcol], y=m*rng+b,
+                            mode="lines", name=f"{ser} trend",
+                            line=dict(color=col, dash=sty))
 
-        # layout
-        fig.update_layout(width=W,height=H,showlegend=legend,font=dict(size=font_sz))
-        if yzero: fig.update_yaxes(rangemode="tozero")
-        if grid:  fig.update_xaxes(showgrid=True); fig.update_yaxes(showgrid=True)
+        # layout tweaks
+        fig.update_layout(width=W, height=H,
+                          showlegend=legend,
+                          font=dict(size=font_sz))
+        if yzero:
+            fig.update_yaxes(rangemode="tozero")
+        if grid:
+            fig.update_xaxes(showgrid=True)
+            fig.update_yaxes(showgrid=True)
 
-        st.plotly_chart(fig,use_container_width=False,
+        st.plotly_chart(fig, use_container_width=False,
             config={"modeBarButtonsToAdd":["drawrect","eraseshape"],
                     "displaylogo":False})
 
-        # ---------- EXPORT ------------------------------------------------
+        # EXPORT
         png_bytes = fig.to_image(format="png", width=W, height=H, scale=2)
         svg_bytes = fig.to_image(format="svg", width=W, height=H, scale=2)
         base      = f"{slug(title or chart)}_{W}x{H}_{stamp()}"
