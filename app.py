@@ -1,4 +1,4 @@
-# true_beacon_radio.py  ·  v1.3.3 · 2025-04-30
+# true_beacon_radio.py  ·  v1.3.4 · 2025-04-30
 # ------------------------------------------------
 # Brand-locked chart builder (web-only edition):
 # • Canvas presets, data-labels, highlight bands, trend-lines
@@ -6,7 +6,7 @@
 # • Color randomiser driving all series
 # • Resolution preview (no padding)
 # • Data normalization (index to base)
-# • Pure-SVG export (scale=1) + PNG
+# • Pure-SVG export via fig.to_svg() + PNG
 # • Standard Streamlit download buttons
 
 import io, re, random
@@ -57,7 +57,7 @@ def sample_df() -> pd.DataFrame:
 def drawdown_fig(df, x, y, title, palette):
     cum        = (1 + df[y]).cumprod()
     running_max= cum.cummax()
-    dd         = cum / running_max - 1
+    dd         = cum/running_max - 1
     fig        = px.area(
         x=df[x], y=dd, title=title,
         labels={"y":"Draw-down"},
@@ -75,8 +75,8 @@ def combo_fig(df, x, b, l, title, palette):
     )
     fig.update_layout(
         title=title,
-        yaxis2=dict(overlaying="y", side="right",
-                    showgrid=False, showline=True, linecolor=GRAY)
+        yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                    showline=True, linecolor=GRAY)
     )
     return fig
 
@@ -95,7 +95,7 @@ with tabs[0]:
         st.download_button(
             "sample.csv",
             sample_df().to_csv(index=False).encode(),
-            "sample.csv", "text/csv"
+            "sample.csv","text/csv"
         )
     if up:
         st.session_state.df = (
@@ -180,14 +180,13 @@ else:
     )
 
 # ③ LAYOUT & STYLE =========================================================
-# Canvas presets
 PRESETS = {
     "Slide-below 1650×640":(1650,640),
-    "Slide-side 815×640":(815,640),
-    "Hero 1920×480":(1920,480),
-    "Social 1080×800":(1080,800),
-    "Square 1080×1080":(1080,1080),
-    "Custom…":None
+    "Slide-side 815×640": (815,640),
+    "Hero 1920×480":     (1920,480),
+    "Social 1080×800":   (1080,800),
+    "Square 1080×1080":  (1080,1080),
+    "Custom…":           None
 }
 sel = st.selectbox("Canvas preset", list(PRESETS.keys()))
 if sel=="Custom…":
@@ -196,7 +195,7 @@ if sel=="Custom…":
 else:
     W,H = PRESETS[sel]
 
-# Resolution preview
+# Resolution preview (no padding)
 scale = min(300/W, 300/H, 1)
 pw,ph = int(W*scale), int(H*scale)
 st.markdown(
@@ -218,13 +217,13 @@ with col2:
         st.session_state.palette = list(PALETTE)
 
 # Axis titles & tick-label toggles
-show_x_title  = st.checkbox("Show X-axis title", True)
-x_title_text  = st.text_input("X-axis title text", xcol) if show_x_title else ""
-show_x_ticks  = st.checkbox("Show X-axis tick labels", True)
+show_x_title = st.checkbox("Show X-axis title", True)
+x_title_text = st.text_input("X-title text", xcol) if show_x_title else ""
+show_x_ticks = st.checkbox("Show X-tick labels", True)
 
-show_y_title  = st.checkbox("Show Y-axis title", True)
-y_title_text  = st.text_input("Y-axis title text", ycols[0] if ycols else "") if show_y_title else ""
-show_y_ticks  = st.checkbox("Show Y-axis tick labels", True)
+show_y_title = st.checkbox("Show Y-axis title", True)
+y_title_text = st.text_input("Y-title text", ycols[0] if ycols else "") if show_y_title else ""
+show_y_ticks = st.checkbox("Show Y-tick labels", True)
 
 # Basic style
 show_title = st.checkbox("Show chart title", True)
@@ -256,7 +255,8 @@ for i in (1,2):
         s   = st.selectbox(f"Series {i}", numeric, key=f"s{i}")
         xs  = st.selectbox(f"Start X {i}", df[xcol], key=f"xs{i}")
         xe  = st.selectbox(f"End X {i}", df[xcol], key=f"xe{i}")
-        col = st.selectbox(f"Colour {i}", st.session_state.palette, key=f"c{i}", index=i-1)
+        col = st.selectbox(f"Colour {i}", st.session_state.palette,
+                           key=f"c{i}", index=i-1)
         sty = st.selectbox(f"Style {i}", ["solid","dash"], key=f"st{i}")
         trend_cfg.append((s,xs,xe,sty,col))
 
@@ -267,13 +267,13 @@ if chart in {"Bar","Grouped Bar","Stacked Bar","Stacked Bar (h)","Pie","Donut","
     if chart in {"Pie","Donut"} and show_labels:
         label_mode = st.radio("Label type", ["percent","value"], horizontal=True)
 
-# ④ GENERATE ==============================================================  
+# ④ GENERATE & EXPORT =====================================================
 if st.button("Generate"):
     try:
         palette = st.session_state.palette
 
-        # --- Build figure ------------------------------------------------
-        if   chart=="Line":
+        # Build figure
+        if chart=="Line":
             fig = px.line(df, x=xcol, y=ycols, title=title,
                           color_discrete_sequence=palette)
         elif chart=="Scatter":
@@ -321,17 +321,23 @@ if st.button("Generate"):
             fig = make_subplots(rows=1, cols=2, specs=[[{"type":"domain"}]*2])
             half = len(palette)//2 or 1
             p1, p2 = palette[:half], palette[half:]
-            fig.add_trace(go.Pie(labels=df[xcol], values=df[ycols[0]],
-                                 hole=.4, textinfo=txt, marker=dict(colors=p1)), 1, 1)
-            fig.add_trace(go.Pie(labels=df[xcol], values=df[ycols[0]],
-                                 textinfo=txt, marker=dict(colors=p2)),       1, 2)
+            fig.add_trace(go.Pie(
+                labels=df[xcol], values=df[ycols[0]],
+                hole=.4, textinfo=txt,
+                marker=dict(colors=p1)
+            ), 1, 1)
+            fig.add_trace(go.Pie(
+                labels=df[xcol], values=df[ycols[0]],
+                textinfo=txt,
+                marker=dict(colors=p2)
+            ), 1, 2)
             fig.update_layout(title=title)
         elif chart=="Radar":
             fig = go.Figure()
-            for i,c in enumerate(ycols):
+            for idx, c in enumerate(ycols):
                 fig.add_trace(go.Scatterpolar(
                     r=df[c], theta=df[xcol], fill="toself",
-                    name=c, line=dict(color=palette[i % len(palette)]),
+                    name=c, line=dict(color=palette[idx%len(palette)]),
                     text=df[c] if show_labels else None,
                     textposition="top center"
                 ))
@@ -356,7 +362,7 @@ if st.button("Generate"):
         else:
             st.stop()
 
-        # Axis titles & tick-labels
+        # Axis titles & ticks
         fig.update_xaxes(
             title_text=(x_title_text if show_x_title else ""),
             showticklabels=show_x_ticks
@@ -366,7 +372,7 @@ if st.button("Generate"):
             showticklabels=show_y_ticks
         )
 
-        # Highlight band
+        # Highlight bands
         if vband:
             x0,x1,o = vband
             fig.add_vrect(x0=x0, x1=x1,
@@ -387,7 +393,7 @@ if st.button("Generate"):
                             mode="lines", name=f"{ser} trend",
                             line=dict(color=col, dash=sty))
 
-        # Final layout tweaks (margin already zero via template)
+        # Final layout tweaks (no padding)
         fig.update_layout(
             width=W, height=H,
             showlegend=legend,
@@ -404,15 +410,16 @@ if st.button("Generate"):
             config={"modeBarButtonsToAdd":["drawrect","eraseshape"],
                     "displaylogo":False})
 
-        # EXPORT PNG + PURE SVG
+        # EXPORT
         png_bytes = fig.to_image(format="png", width=W, height=H, scale=2)
-        svg_bytes = fig.to_image(format="svg", width=W, height=H, scale=1)
+        svg_str   = fig.to_svg(width=W, height=H)
+        svg_bytes = svg_str.encode("utf-8")
         base      = f"{slug(title or chart)}_{W}x{H}_{stamp()}"
 
         st.download_button("Download PNG", png_bytes,
-                           f"{base}.png", "image/png")
+                           f"{base}.png","image/png")
         st.download_button("Download SVG", svg_bytes,
-                           f"{base}.svg", "image/svg+xml")
+                           f"{base}.svg","image/svg+xml")
 
     except Exception as e:
         st.error(e)
