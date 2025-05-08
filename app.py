@@ -1,4 +1,4 @@
-# true_beacon_radio.py  ·  v1.3.4 · 2025-04-30
+# true_beacon_radio.py  ·  v1.3.5 · 2025-04-30
 # ------------------------------------------------
 # Brand-locked chart builder (web-only edition):
 # • Canvas presets, data-labels, highlight bands, trend-lines
@@ -6,7 +6,7 @@
 # • Color randomiser driving all series
 # • Resolution preview (no padding)
 # • Data normalization (index to base)
-# • Pure-SVG export via fig.to_svg() + PNG
+# • Pure-SVG export via Kaleido + PNG
 # • Standard Streamlit download buttons
 
 import io, re, random
@@ -57,7 +57,7 @@ def sample_df() -> pd.DataFrame:
 def drawdown_fig(df, x, y, title, palette):
     cum        = (1 + df[y]).cumprod()
     running_max= cum.cummax()
-    dd         = cum/running_max - 1
+    dd         = cum / running_max - 1
     fig        = px.area(
         x=df[x], y=dd, title=title,
         labels={"y":"Draw-down"},
@@ -75,8 +75,8 @@ def combo_fig(df, x, b, l, title, palette):
     )
     fig.update_layout(
         title=title,
-        yaxis2=dict(overlaying="y", side="right", showgrid=False,
-                    showline=True, linecolor=GRAY)
+        yaxis2=dict(overlaying="y", side="right",
+                    showgrid=False, showline=True, linecolor=GRAY)
     )
     return fig
 
@@ -323,13 +323,11 @@ if st.button("Generate"):
             p1, p2 = palette[:half], palette[half:]
             fig.add_trace(go.Pie(
                 labels=df[xcol], values=df[ycols[0]],
-                hole=.4, textinfo=txt,
-                marker=dict(colors=p1)
+                hole=.4, textinfo=txt, marker=dict(colors=p1)
             ), 1, 1)
             fig.add_trace(go.Pie(
                 labels=df[xcol], values=df[ycols[0]],
-                textinfo=txt,
-                marker=dict(colors=p2)
+                textinfo=txt, marker=dict(colors=p2)
             ), 1, 2)
             fig.update_layout(title=title)
         elif chart=="Radar":
@@ -393,7 +391,7 @@ if st.button("Generate"):
                             mode="lines", name=f"{ser} trend",
                             line=dict(color=col, dash=sty))
 
-        # Final layout tweaks (no padding)
+        # Final layout tweaks (margin already zero)
         fig.update_layout(
             width=W, height=H,
             showlegend=legend,
@@ -410,10 +408,9 @@ if st.button("Generate"):
             config={"modeBarButtonsToAdd":["drawrect","eraseshape"],
                     "displaylogo":False})
 
-        # EXPORT
+        # EXPORT PNG + PURE SVG
         png_bytes = fig.to_image(format="png", width=W, height=H, scale=2)
-        svg_str   = fig.to_svg(width=W, height=H)
-        svg_bytes = svg_str.encode("utf-8")
+        svg_bytes = pio.to_image(fig, format="svg", width=W, height=H, scale=1)
         base      = f"{slug(title or chart)}_{W}x{H}_{stamp()}"
 
         st.download_button("Download PNG", png_bytes,
