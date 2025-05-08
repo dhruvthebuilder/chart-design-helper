@@ -1,12 +1,13 @@
-# true_beacon_radio.py  ·  v1.3.2 · 2025-04-30
+# true_beacon_radio.py  ·  v1.3.3 · 2025-04-30
 # ------------------------------------------------
 # Brand-locked chart builder (web-only edition):
 # • Canvas presets, data-labels, highlight bands, trend-lines
 # • Axis-title & tick-label toggles + edits
-# • Color randomiser driving every chart
-# • Resolution preview
+# • Color randomiser driving all series
+# • Resolution preview (no padding)
 # • Data normalization (index to base)
-# • Standard Streamlit download buttons (PNG / SVG)
+# • Pure-SVG export (scale=1) + PNG
+# • Standard Streamlit download buttons
 
 import io, re, random
 from datetime import datetime
@@ -24,16 +25,16 @@ PALETTE = GOLD, GOLD_LIGHT, GRAY, WHITE = (
     "#987F2F", "#E5C96A", "#B6B6B6", "#FFFFFF"
 )
 TRANS = "rgba(0,0,0,0)"
-
 pio.templates["truebeacon"] = go.layout.Template(
     layout=go.Layout(
         font=dict(family="Red Hat Display, sans-serif", size=14, color=GRAY),
-        colorway=list(PALETTE) + ["#8A8A8A"],
+        colorway=list(PALETTE),
         plot_bgcolor=TRANS, paper_bgcolor=TRANS,
         xaxis=dict(showgrid=False, showline=True, linecolor=GRAY,
                    zeroline=True, zerolinecolor=GRAY),
         yaxis=dict(showgrid=False, showline=True, linecolor=GRAY,
-                   zeroline=True, zerolinecolor=GRAY)
+                   zeroline=True, zerolinecolor=GRAY),
+        margin=dict(l=0, r=0, t=0, b=0, pad=0)
     )
 )
 pio.templates.default = "truebeacon"
@@ -56,7 +57,7 @@ def sample_df() -> pd.DataFrame:
 def drawdown_fig(df, x, y, title, palette):
     cum        = (1 + df[y]).cumprod()
     running_max= cum.cummax()
-    dd         = cum/running_max - 1
+    dd         = cum / running_max - 1
     fig        = px.area(
         x=df[x], y=dd, title=title,
         labels={"y":"Draw-down"},
@@ -72,13 +73,15 @@ def combo_fig(df, x, b, l, title, palette):
         x=df[x], y=df[l], mode="lines+markers", name=l,
         yaxis="y2", line=dict(color=palette[1])
     )
-    fig.update_layout(title=title,
-        yaxis2=dict(overlaying="y", side="right", showgrid=False,
-                    showline=True, linecolor=GRAY))
+    fig.update_layout(
+        title=title,
+        yaxis2=dict(overlaying="y", side="right",
+                    showgrid=False, showline=True, linecolor=GRAY)
+    )
     return fig
 
 # ── Streamlit scaffold ────────────────────────────────────────────────────
-st.set_page_config(page_title="Radio", layout="wide")
+st.set_page_config(page_title="Radio", layout="wide", initial_sidebar_state="collapsed")
 st.title("Radio")
 
 # ① DATA INPUT & NORMALIZATION =============================================
@@ -92,7 +95,7 @@ with tabs[0]:
         st.download_button(
             "sample.csv",
             sample_df().to_csv(index=False).encode(),
-            "sample.csv","text/csv"
+            "sample.csv", "text/csv"
         )
     if up:
         st.session_state.df = (
@@ -117,7 +120,7 @@ with tabs[1]:
         with st.form("rename"):
             cols = [
                 st.text_input("", c, key=f"h{i}")
-                for i,c in enumerate(prev.columns)
+                for i, c in enumerate(prev.columns)
             ]
             if st.form_submit_button("Use this data"):
                 prev.columns = cols
@@ -149,14 +152,14 @@ cols = list(df.columns)
 CHARTS = [
     "Line","Scatter","Area","Bar","Grouped Bar","Stacked Bar",
     "Stacked Bar (h)","Histogram","Box","Pie","Donut","Donut + Pie",
-    "Radar","Heatmap","Waterfall","Draw-down","Line-Bar Combo"
+    "Radar","Waterfall","Draw-down","Line-Bar Combo"
 ]
 chart = st.selectbox("Chart type", CHARTS)
 xcol  = st.selectbox("X axis", cols)
 
 single = {
     "Pie","Donut","Donut + Pie","Histogram","Box",
-    "Heatmap","Waterfall","Draw-down"
+    "Waterfall","Draw-down"
 }
 if chart in single:
     ycols = [st.selectbox("Value / Y",[c for c in cols if c!=xcol])]
@@ -177,6 +180,7 @@ else:
     )
 
 # ③ LAYOUT & STYLE =========================================================
+# Canvas presets
 PRESETS = {
     "Slide-below 1650×640":(1650,640),
     "Slide-side 815×640":(815,640),
@@ -214,13 +218,13 @@ with col2:
         st.session_state.palette = list(PALETTE)
 
 # Axis titles & tick-label toggles
-show_x_title = st.checkbox("Show X-axis title", True)
-x_title_text = st.text_input("X-axis title text", xcol) if show_x_title else ""
-show_x_ticks = st.checkbox("Show X-axis tick labels", True)
+show_x_title  = st.checkbox("Show X-axis title", True)
+x_title_text  = st.text_input("X-axis title text", xcol) if show_x_title else ""
+show_x_ticks  = st.checkbox("Show X-axis tick labels", True)
 
-show_y_title = st.checkbox("Show Y-axis title", True)
-y_title_text = st.text_input("Y-axis title text", ycols[0] if ycols else "") if show_y_title else ""
-show_y_ticks = st.checkbox("Show Y-axis tick labels", True)
+show_y_title  = st.checkbox("Show Y-axis title", True)
+y_title_text  = st.text_input("Y-axis title text", ycols[0] if ycols else "") if show_y_title else ""
+show_y_ticks  = st.checkbox("Show Y-axis tick labels", True)
 
 # Basic style
 show_title = st.checkbox("Show chart title", True)
@@ -246,21 +250,19 @@ if by0 and by1:
 # Trend-lines
 numeric   = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
 trend_cfg = []
-for idx in (1,2):
-    on = st.checkbox(f"Enable trend {idx}")
+for i in (1,2):
+    on = st.checkbox(f"Enable trend {i}")
     if on and numeric:
-        s   = st.selectbox(f"Series {idx}", numeric, key=f"s{idx}")
-        xs  = st.selectbox(f"Start X {idx}", df[xcol], key=f"xs{idx}")
-        xe  = st.selectbox(f"End X {idx}", df[xcol], key=f"xe{idx}")
-        col = st.selectbox(f"Colour {idx}", st.session_state.palette,
-                           key=f"c{idx}", index=idx-1)
-        sty = st.selectbox(f"Style {idx}", ["solid","dash"], key=f"st{idx}")
+        s   = st.selectbox(f"Series {i}", numeric, key=f"s{i}")
+        xs  = st.selectbox(f"Start X {i}", df[xcol], key=f"xs{i}")
+        xe  = st.selectbox(f"End X {i}", df[xcol], key=f"xe{i}")
+        col = st.selectbox(f"Colour {i}", st.session_state.palette, key=f"c{i}", index=i-1)
+        sty = st.selectbox(f"Style {i}", ["solid","dash"], key=f"st{i}")
         trend_cfg.append((s,xs,xe,sty,col))
 
 # Data labels
 show_labels=False; label_mode="value"
-if chart in {"Bar","Grouped Bar","Stacked Bar","Stacked Bar (h)",
-             "Pie","Donut","Radar"}:
+if chart in {"Bar","Grouped Bar","Stacked Bar","Stacked Bar (h)","Pie","Donut","Radar"}:
     show_labels = st.checkbox("Show data labels")
     if chart in {"Pie","Donut"} and show_labels:
         label_mode = st.radio("Label type", ["percent","value"], horizontal=True)
@@ -270,7 +272,7 @@ if st.button("Generate"):
     try:
         palette = st.session_state.palette
 
-        # Base figure ------------------------------------------------------
+        # --- Build figure ------------------------------------------------
         if   chart=="Line":
             fig = px.line(df, x=xcol, y=ycols, title=title,
                           color_discrete_sequence=palette)
@@ -317,19 +319,12 @@ if st.button("Generate"):
         elif chart=="Donut + Pie":
             txt = "percent+label" if label_mode=="percent" else "value+label"
             fig = make_subplots(rows=1, cols=2, specs=[[{"type":"domain"}]*2])
-            # slice palette in half for two pies
             half = len(palette)//2 or 1
-            p1 = palette[:half]; p2 = palette[half:]
-            fig.add_trace(go.Pie(
-                labels=df[xcol], values=df[ycols[0]],
-                hole=.4, textinfo=txt,
-                marker=dict(colors=p1)
-            ), 1, 1)
-            fig.add_trace(go.Pie(
-                labels=df[xcol], values=df[ycols[0]],
-                textinfo=txt,
-                marker=dict(colors=p2)
-            ), 1, 2)
+            p1, p2 = palette[:half], palette[half:]
+            fig.add_trace(go.Pie(labels=df[xcol], values=df[ycols[0]],
+                                 hole=.4, textinfo=txt, marker=dict(colors=p1)), 1, 1)
+            fig.add_trace(go.Pie(labels=df[xcol], values=df[ycols[0]],
+                                 textinfo=txt, marker=dict(colors=p2)),       1, 2)
             fig.update_layout(title=title)
         elif chart=="Radar":
             fig = go.Figure()
@@ -346,10 +341,6 @@ if st.button("Generate"):
                 angularaxis=dict(rotation=90)
             )
             fig.update_layout(title=title)
-        elif chart=="Heatmap":
-            fig = px.density_heatmap(df, x=xcol, y=ycols[0],
-                                     title=title,
-                                     color_continuous_scale=px.colors.sequential.Greys)
         elif chart=="Waterfall":
             fig = go.Figure(go.Waterfall(
                 x=df[xcol], y=df[ycols[0]],
@@ -365,7 +356,7 @@ if st.button("Generate"):
         else:
             st.stop()
 
-        # Axis title & tick-label toggles
+        # Axis titles & tick-labels
         fig.update_xaxes(
             title_text=(x_title_text if show_x_title else ""),
             showticklabels=show_x_ticks
@@ -375,7 +366,7 @@ if st.button("Generate"):
             showticklabels=show_y_ticks
         )
 
-        # highlight band
+        # Highlight band
         if vband:
             x0,x1,o = vband
             fig.add_vrect(x0=x0, x1=x1,
@@ -385,7 +376,7 @@ if st.button("Generate"):
             fig.add_hrect(y0=y0, y1=y1,
                           fillcolor=GOLD, opacity=o, line_width=0)
 
-        # trend-lines
+        # Trend-lines
         for ser,xs,xe,sty,col in trend_cfg:
             i0 = df.index[df[xcol]==xs][0]
             i1 = df.index[df[xcol]==xe][-1]
@@ -396,22 +387,24 @@ if st.button("Generate"):
                             mode="lines", name=f"{ser} trend",
                             line=dict(color=col, dash=sty))
 
-        # layout tweaks
-        fig.update_layout(width=W, height=H,
-                          showlegend=legend,
-                          font=dict(size=font_sz))
+        # Final layout tweaks (margin already zero via template)
+        fig.update_layout(
+            width=W, height=H,
+            showlegend=legend,
+            font=dict(size=font_sz)
+        )
         if yzero:
             fig.update_yaxes(rangemode="tozero")
         if grid:
             fig.update_xaxes(showgrid=True)
             fig.update_yaxes(showgrid=True)
 
-        # render
+        # Render
         st.plotly_chart(fig, use_container_width=False,
             config={"modeBarButtonsToAdd":["drawrect","eraseshape"],
                     "displaylogo":False})
 
-        # EXPORT PNG + SVG
+        # EXPORT PNG + PURE SVG
         png_bytes = fig.to_image(format="png", width=W, height=H, scale=2)
         svg_bytes = fig.to_image(format="svg", width=W, height=H, scale=1)
         base      = f"{slug(title or chart)}_{W}x{H}_{stamp()}"
