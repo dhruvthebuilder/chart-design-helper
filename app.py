@@ -274,12 +274,15 @@ def reshape_for_grouped_bar(df, x_col, y_cols):
     try:
         # Comprehensive validation
         if df.empty:
+            st.error("📊 Cannot create chart: Data is empty")
             return pd.DataFrame()
             
         if not x_col or x_col == "None" or x_col == "":
+            st.error("📊 Cannot create chart: No X column selected")
             return pd.DataFrame()
             
         if not y_cols or not any(col and col != "None" and col != "" for col in y_cols):
+            st.error("📊 Cannot create chart: No Y columns selected")
             return pd.DataFrame()
         
         # Ensure we're working with a copy
@@ -292,22 +295,31 @@ def reshape_for_grouped_bar(df, x_col, y_cols):
         
         # Validate columns exist
         if x_col_clean not in df_copy.columns:
-            st.warning(f"X column '{x_col_clean}' not found in data")
+            st.error(f"📊 X column '{x_col_clean}' not found in data. Available columns: {list(df_copy.columns)}")
             return pd.DataFrame()
             
         available_y_cols = [col for col in y_cols_clean if col in df_copy.columns]
         if not available_y_cols:
-            st.warning("No valid Y columns found in data")
+            st.error(f"📊 No valid Y columns found. Selected: {y_cols_clean}, Available: {list(df_copy.columns)}")
             return pd.DataFrame()
         
         # Filter to relevant columns only
         relevant_cols = [x_col_clean] + available_y_cols
         df_subset = df_copy[relevant_cols].copy()
         
+        # Convert Y columns to numeric, handling errors
+        for col in available_y_cols:
+            if not pd.api.types.is_numeric_dtype(df_subset[col]):
+                try:
+                    df_subset[col] = pd.to_numeric(df_subset[col], errors='coerce')
+                except Exception as conv_error:
+                    st.warning(f"⚠️ Could not convert column '{col}' to numeric: {str(conv_error)}")
+        
         # Remove rows where x_col is null
         df_subset = df_subset.dropna(subset=[x_col_clean])
         
         if df_subset.empty:
+            st.error("📊 No data remaining after removing null values")
             return pd.DataFrame()
         
         # Melt the dataframe
@@ -319,8 +331,16 @@ def reshape_for_grouped_bar(df, x_col, y_cols):
             value_name='Value'
         )
         
+        # Ensure Value column is numeric
+        df_melted['Value'] = pd.to_numeric(df_melted['Value'], errors='coerce')
+        
         # Clean up the melted data
         df_melted = df_melted.dropna(subset=['Value'])  # Remove null values
+        
+        if df_melted.empty:
+            st.error("📊 No valid numeric data found in selected columns")
+            return pd.DataFrame()
+        
         df_melted['Series'] = df_melted['Series'].apply(lambda x: safe_str(x).strip())
         df_melted[x_col_clean] = df_melted[x_col_clean].apply(lambda x: safe_str(x).strip())
         
@@ -330,10 +350,15 @@ def reshape_for_grouped_bar(df, x_col, y_cols):
             (df_melted[x_col_clean] != '')
         ]
         
+        # Store the cleaned x_col name for later use
+        df_melted.attrs['x_col'] = x_col_clean
+        
         return df_melted
     
     except Exception as e:
-        st.error(f"Error reshaping data for grouped bar: {str(e)}")
+        st.error(f"❌ Error reshaping data for grouped bar: {str(e)}")
+        import traceback
+        st.error(f"Details: {traceback.format_exc()}")
         return pd.DataFrame()
 
 def create_grouped_bar_chart(df, x_col, y_cols, title="", horizontal=False):
@@ -386,62 +411,73 @@ def create_altair_chart(chart_type, df, x_col, y_cols, title, W, H, config):
     df_melted = reshape_for_grouped_bar(df, x_col, y_cols)
     
     if df_melted.empty:
+        st.error("❌ Cannot create chart - data reshaping failed")
         return None
     
-    base = alt.Chart(df_melted).properties(
-        width=W * 0.85,
-        height=H * 0.85,
-        title=title if title else None
-    )
+    # Get the cleaned x_col name from the melted dataframe
+    x_col_clean = df_melted.attrs.get('x_col', safe_str(x_col).strip())
     
-    # Configure axes
-    x_axis = alt.X(f'{x_col}:N', 
-                   title=config['x_title'] if config['show_x_title'] else None,
-                   axis=alt.Axis(labels=config['show_x_labels']))
-    
-    y_axis = alt.Y('Value:Q', 
-                   title=config['y_title'] if config['show_y_title'] else None,
-                   axis=alt.Axis(labels=config['show_y_labels']),
-                   scale=alt.Scale(zero=config['y_zero']))
-    
-    if chart_type == "Grouped Bar":
-        chart = base.mark_bar().encode(
-            x=x_axis,
-            y=y_axis,
-            color=alt.Color('Series:N', 
-                          scale=alt.Scale(range=st.session_state.colors[:len(y_cols)]),
-                          legend=alt.Legend() if config['show_legend'] else None),
-            xOffset='Series:N'
+    try:
+        base = alt.Chart(df_melted).properties(
+            width=W * 0.85,
+            height=H * 0.85,
+            title=title if title else None
         )
-    else:  # Stacked Bar
-        chart = base.mark_bar().encode(
-            x=x_axis,
-            y=alt.Y('sum(Value):Q', 
-                   title=config['y_title'] if config['show_y_title'] else None,
-                   axis=alt.Axis(labels=config['show_y_labels']),
-                   scale=alt.Scale(zero=config['y_zero'])),
-            color=alt.Color('Series:N',
-                          scale=alt.Scale(range=st.session_state.colors[:len(y_cols)]),
-                          legend=alt.Legend() if config['show_legend'] else None)
+        
+        # Configure axes using the cleaned column name
+        x_axis = alt.X(f'{x_col_clean}:N', 
+                       title=config['x_title'] if config['show_x_title'] else None,
+                       axis=alt.Axis(labels=config['show_x_labels']))
+        
+        y_axis = alt.Y('Value:Q', 
+                       title=config['y_title'] if config['show_y_title'] else None,
+                       axis=alt.Axis(labels=config['show_y_labels']),
+                       scale=alt.Scale(zero=config['y_zero']))
+        
+        if chart_type == "Grouped Bar":
+            chart = base.mark_bar().encode(
+                x=x_axis,
+                y=y_axis,
+                color=alt.Color('Series:N', 
+                              scale=alt.Scale(range=st.session_state.colors[:len(y_cols)]),
+                              legend=alt.Legend() if config['show_legend'] else None),
+                xOffset='Series:N'
+            )
+        else:  # Stacked Bar
+            chart = base.mark_bar().encode(
+                x=x_axis,
+                y=alt.Y('sum(Value):Q', 
+                       title=config['y_title'] if config['show_y_title'] else None,
+                       axis=alt.Axis(labels=config['show_y_labels']),
+                       scale=alt.Scale(zero=config['y_zero'])),
+                color=alt.Color('Series:N',
+                              scale=alt.Scale(range=st.session_state.colors[:len(y_cols)]),
+                              legend=alt.Legend() if config['show_legend'] else None)
+            )
+        
+        if config['show_values']:
+            text = chart.mark_text(
+                dy=-5 if chart_type == "Grouped Bar" else 0,
+                fontSize=config['font_size'] * 0.8,
+                font=FONT_FAMILIES[st.session_state.font_family]
+            ).encode(
+                text=alt.Text('Value:Q', format='.1f')
+            )
+            chart = chart + text
+        
+        return chart.configure(
+            font=FONT_FAMILIES[st.session_state.font_family],
+            fontSize=config['font_size']
+        ).configure_axis(
+            grid=config['show_grid'],
+            gridColor='#E0E0E0' if config['show_grid'] else 'transparent'
         )
     
-    if config['show_values']:
-        text = chart.mark_text(
-            dy=-5 if chart_type == "Grouped Bar" else 0,
-            fontSize=config['font_size'] * 0.8,
-            font=FONT_FAMILIES[st.session_state.font_family]
-        ).encode(
-            text=alt.Text('Value:Q', format='.1f')
-        )
-        chart = chart + text
-    
-    return chart.configure(
-        font=FONT_FAMILIES[st.session_state.font_family],
-        fontSize=config['font_size']
-    ).configure_axis(
-        grid=config['show_grid'],
-        gridColor='#E0E0E0' if config['show_grid'] else 'transparent'
-    )
+    except Exception as e:
+        st.error(f"❌ Error creating Altair chart: {str(e)}")
+        import traceback
+        st.error(f"Details: {traceback.format_exc()}")
+        return None
 
 def create_map_chart(df, location_col, value_col, title="", width=800, height=600):
     """Create a choropleth map"""
